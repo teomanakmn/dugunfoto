@@ -69,9 +69,6 @@ export default function Home() {
   const uploadFile = async (file: File) => {
     const fileId = Math.random().toString(36).substring(2, 9) + "-" + Date.now();
     const fileExtension = file.name.split(".").pop();
-    const sanitizedOriginalName = file.name
-      .replace(/[^a-zA-Z0-9]/g, "_")
-      .substring(0, 30);
     const fileName = `${Date.now()}-${fileId}.${fileExtension}`;
 
     // Add to uploads state
@@ -80,21 +77,43 @@ export default function Home() {
       { id: fileId, name: file.name, progress: 0, status: "uploading" },
     ]);
 
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
     try {
-      const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .upload(fileName, file, {
-          cacheControl: "3600",
-          upsert: false,
-          onUploadProgress: (progress) => {
-            const percent = Math.round((progress.loaded / progress.total) * 100);
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const uploadUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${fileName}`;
+        
+        xhr.open("POST", uploadUrl, true);
+        xhr.setRequestHeader("apikey", supabaseAnonKey);
+        xhr.setRequestHeader("Authorization", `Bearer ${supabaseAnonKey}`);
+        xhr.setRequestHeader("Content-Type", file.type);
+
+        // Track progress
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
             setUploads((prev) =>
               prev.map((u) => (u.id === fileId ? { ...u, progress: percent } : u))
             );
-          },
-        });
+          }
+        };
 
-      if (error) throw error;
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.response);
+          } else {
+            reject(new Error(`Server error: ${xhr.statusText} (${xhr.status})`));
+          }
+        };
+
+        xhr.onerror = () => {
+          reject(new Error("Network error occurred."));
+        };
+
+        xhr.send(file);
+      });
 
       setUploads((prev) =>
         prev.map((u) =>
@@ -213,7 +232,7 @@ export default function Home() {
           <div className="upload-icon">
             <Camera style={{ width: "28px", height: "28px" }} />
           </div>
-          <div style={{ display: "flex", flexDirection: "col", gap: "4px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
             <p style={{ fontWeight: 600, color: "var(--color-text-dark)", fontSize: "1.1rem" }}>
               Fotoğraf Çek / Seç
             </p>
